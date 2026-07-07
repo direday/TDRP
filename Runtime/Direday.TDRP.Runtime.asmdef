@@ -1,0 +1,17 @@
+{
+    "name": "Direday.TDRP.Runtime",
+    "rootNamespace": "TDRP",
+    "references": [
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.Collections"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

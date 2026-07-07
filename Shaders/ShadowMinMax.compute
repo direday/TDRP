@@ -1,0 +1,52 @@
+// Builds a single coarse min/max-depth level over the directional shadow map (HiZ-style),
+// used to early-out the PCSS blocker search. Each output texel stores (min, max) of the raw
+// shadow depth over a BLOCK x BLOCK region of the shadow map.
+//
+// Why one level and not a full mip chain: the PCSS blocker-search radius is hard-capped
+// (PcssMaxSearchTexels), so BLOCK = 2 * cap guarantees any search window is covered by a
+// 2x2 neighbourhood of coarse texels. A full chain would only be needed if the search
+// radius were unbounded (then you'd pick a mip per radius).
+#pragma kernel ShadowMinMaxReduce
+
+// Depth SRV of the shadow map. Read raw (point) — no comparison sampler here.
+Texture2D<float> _ShadowDepth;
+// (min, max) output, one texel per BLOCK x BLOCK shadow region.
+RWTexture2D<float2> _ShadowMinMaxResult;
+// x: block size (shadow texels per coarse texel), y: shadow resolution, z: coarse resolution.
+// Passed as floats (SetComputeVectorParam) and cast — keeps the binding simple.
+float4 _ShadowMinMaxDims;
+
+[numthreads(8, 8, 1)]
+void ShadowMinMaxReduce(uint3 id : SV_DispatchThreadID)
+{
+	uint coarseRes = (uint)_ShadowMinMaxDims.z;
+	if (id.x >= coarseRes || id.y >= coarseRes)
+		return;
+
+	uint block = (uint)_ShadowMinMaxDims.x;
+	uint res = (uint)_ShadowMinMaxDims.y;
+	uint2 origin = id.xy * block;
+
+	// Depth is in [0,1]; seed the reduction at the opposite extremes.
+	float mn = 1.0;
+	float mx = 0.0;
+
+	// Simple per-texel scan of the block. At BLOCK=32 that's 1024 loads per coarse texel;
+	// fine for a once-per-frame pass over a small output, but a groupshared hierarchical
+	// reduction would cut the latency if this ever shows up in a profile.
+	[loop] for (uint y = 0; y < block; y++)
+	{
+		uint sy = origin.y + y;
+		if (sy >= res) break;
+		[loop] for (uint x = 0; x < block; x++)
+		{
+			uint sx = origin.x + x;
+			if (sx >= res) break;
+			float d = _ShadowDepth.Load(int3(sx, sy, 0));
+			mn = min(mn, d);
+			mx = max(mx, d);
+		}
+	}
+
+	_ShadowMinMaxResult[id.xy] = float2(mn, mx);
+}

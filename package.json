@@ -1,0 +1,13 @@
+{
+  "name": "com.direday.tdrp",
+  "version": "0.1.0",
+  "displayName": "Top-Down Render Pipeline",
+  "description": "Custom SRP built on the RenderGraph API.",
+  "unity": "6000.4",
+  "dependencies": {
+    "com.unity.render-pipelines.core": "17.4.0"
+  },
+  "author": {
+    "name": "direday"
+  }
+}

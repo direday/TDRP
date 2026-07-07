@@ -1,0 +1,100 @@
+#pragma kernel ClusterCull
+
+#include "Includes/Clustering.hlsl"
+
+// Inputs: the punctual lights gathered this frame (same buffer the Opaque pass reads).
+StructuredBuffer<PunctualLightData> _PunctualLights;
+int _PunctualLightCount;
+
+// View-space cluster reconstruction uniforms (set per camera by the cull pass).
+// We use the CPU-side projection (OpenGL convention: NDC z in [-1,1], y up) so the
+// math is platform independent; we only need the XY ray direction from it.
+float4x4 _ClusterInvProjection; // clip -> view
+float4x4 _ClusterWorldToView;   // world -> view (camera.worldToCameraMatrix)
+float4   _ClusterNearFar;       // x: near plane, y: far plane (positive distances)
+
+// Outputs.
+RWStructuredBuffer<uint> _ClusterLightGrid;    // [CLUSTER_COUNT]            -> light count
+RWStructuredBuffer<uint> _ClusterLightIndices; // [CLUSTER_COUNT * MAX_...]  -> light indices
+
+// Screen-tile UV -> a view-space ray from the eye (which sits at the origin in
+// view space). We map cluster cy=0 to the BOTTOM of the screen so it matches the
+// consumer's SV_Position convention, which is bottom-up when rendering into an
+// offscreen RenderTexture (a platform-dependent Unity quirk). With this, no
+// fragment shader needs a y-flip to look its cluster up.
+float3 TileToViewRay(float2 uv)
+{
+	float2 ndc = float2(uv.x * 2.0 - 1.0, uv.y * 2.0 - 1.0);
+	float4 view = mul(_ClusterInvProjection, float4(ndc, 1.0, 1.0));
+	return view.xyz / view.w;
+}
+
+bool SphereIntersectsAABB(float3 center, float radius, float3 mn, float3 mx)
+{
+	float3 closest = clamp(center, mn, mx);
+	float3 d = center - closest;
+	return dot(d, d) <= radius * radius;
+}
+
+[numthreads(64, 1, 1)]
+void ClusterCull(uint3 id : SV_DispatchThreadID)
+{
+	uint index = id.x;
+	if (index >= (uint)CLUSTER_COUNT)
+		return;
+
+	// Decode the linear index back into (cx, cy, cz). Must invert ClusterLinearIndex.
+	uint cz = index / (CLUSTER_X * CLUSTER_Y);
+	uint rem = index - cz * (CLUSTER_X * CLUSTER_Y);
+	uint cy = rem / CLUSTER_X;
+	uint cx = rem - cy * CLUSTER_X;
+
+	float2 uvMin = float2(cx, cy) / float2(CLUSTER_X, CLUSTER_Y);
+	float2 uvMax = float2(cx + 1, cy + 1) / float2(CLUSTER_X, CLUSTER_Y);
+
+	// Four rays through the tile corners (eye at origin in view space).
+	float3 rays[4];
+	rays[0] = TileToViewRay(float2(uvMin.x, uvMin.y));
+	rays[1] = TileToViewRay(float2(uvMax.x, uvMin.y));
+	rays[2] = TileToViewRay(float2(uvMin.x, uvMax.y));
+	rays[3] = TileToViewRay(float2(uvMax.x, uvMax.y));
+
+	// Exponential depth slices: viewers get more precision near the camera. View
+	// space looks down -Z, so the slice planes are negative distances.
+	float near = _ClusterNearFar.x;
+	float far = _ClusterNearFar.y;
+	float ratio = far / near;
+	float zNearView = -near * pow(ratio, (float)cz / CLUSTER_Z);
+	float zFarView = -near * pow(ratio, (float)(cz + 1) / CLUSTER_Z);
+
+	// Intersect each corner ray with both slice planes -> 8 points -> view-space AABB.
+	float3 mn = (float3)1e30;
+	float3 mx = (float3)(-1e30);
+	[unroll]
+	for (int i = 0; i < 4; i++)
+	{
+		float3 r = rays[i];
+		float3 pNear = r * (zNearView / r.z);
+		float3 pFar = r * (zFarView / r.z);
+		mn = min(mn, min(pNear, pFar));
+		mx = max(mx, max(pNear, pFar));
+	}
+
+	// Brute-force test every light's sphere of influence against this cluster's AABB.
+	uint count = 0;
+	uint base = index * MAX_LIGHTS_PER_CLUSTER;
+	for (uint li = 0; li < (uint)_PunctualLightCount && count < (uint)MAX_LIGHTS_PER_CLUSTER; li++)
+	{
+		PunctualLightData light = _PunctualLights[li];
+		float3 posView = mul(_ClusterWorldToView, float4(light.positionRange.xyz, 1.0)).xyz;
+		float radius = rsqrt(light.positionRange.w); // sqrt(range^2) = range
+
+		if (SphereIntersectsAABB(posView, radius, mn, mx))
+		{
+			_ClusterLightIndices[base + count] = li;
+			count++;
+		}
+	}
+
+	_ClusterLightGrid[index] = count;
+}

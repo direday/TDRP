@@ -1,0 +1,100 @@
+// Bakes the environment-BRDF integration LUT — the second half of Karis' split-sum
+// approximation. Each texel holds the pre-integrated (scale, bias) for the specular env BRDF,
+// indexed by (NdotV, perceptualRoughness). At shading time the indirect specular is then just
+//     prefilteredEnv * (F0 * lut.scale + lut.bias)
+// so this whole Monte-Carlo integral is paid ONCE (the env BRDF is independent of the actual
+// environment — it only depends on the view angle and roughness), never per frame.
+#pragma kernel BrdfLutBake
+
+RWTexture2D<float2> _BrdfLutResult;
+float4 _BrdfLutParams; // x: resolution (square)
+
+static const float PI = 3.14159265358979323846;
+
+// Van der Corput radical inverse (bit-reversal), the low-discrepancy second dimension of the
+// Hammersley sequence — spreads samples evenly so 1024 taps converge cleanly.
+float RadicalInverseVdC(uint bits)
+{
+	bits = (bits << 16u) | (bits >> 16u);
+	bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+	bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+	bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+	bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+	return float(bits) * 2.3283064365386963e-10; // / 2^32
+}
+
+float2 Hammersley(uint i, uint n)
+{
+	return float2(float(i) / float(n), RadicalInverseVdC(i));
+}
+
+// Importance-sample the GGX NDF in TANGENT space (surface normal = +z), returning the half
+// vector. Concentrates samples where the GGX lobe has weight, which is what makes the estimator
+// converge for glossy roughness.
+float3 ImportanceSampleGGXTangent(float2 xi, float roughness)
+{
+	float a = roughness * roughness;
+	float phi = 2.0 * PI * xi.x;
+	float cosTheta = sqrt((1.0 - xi.y) / (1.0 + (a * a - 1.0) * xi.y));
+	float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+	return float3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
+}
+
+// Smith geometry (Schlick-GGX) with the IBL remap k = roughness^2 / 2 (distinct from the direct-
+// lighting k = (roughness+1)^2/8; IBL uses the un-biased form).
+float GSmithIBL(float NdotV, float NdotL, float roughness)
+{
+	float k = (roughness * roughness) * 0.5;
+	float gv = NdotV / (NdotV * (1.0 - k) + k);
+	float gl = NdotL / (NdotL * (1.0 - k) + k);
+	return gv * gl;
+}
+
+// The split-sum env-BRDF integral (Karis 2013). Returns (A, B): the scale and bias applied to F0.
+float2 IntegrateBRDF(float NdotV, float roughness)
+{
+	// Isotropic, so put V in the tangent XZ plane at the given NdotV; N = +z.
+	float3 V = float3(sqrt(1.0 - NdotV * NdotV), 0.0, NdotV);
+
+	float A = 0.0;
+	float B = 0.0;
+	const uint SAMPLE_COUNT = 1024u;
+	for (uint i = 0u; i < SAMPLE_COUNT; i++)
+	{
+		float2 xi = Hammersley(i, SAMPLE_COUNT);
+		float3 H = ImportanceSampleGGXTangent(xi, roughness);
+		float3 L = 2.0 * dot(V, H) * H - V;
+
+		float NdotL = saturate(L.z);
+		float NdotH = saturate(H.z);
+		float VdotH = saturate(dot(V, H));
+
+		if (NdotL > 0.0)
+		{
+			float G = GSmithIBL(NdotV, NdotL, roughness);
+			// G_Vis folds the importance-sampling pdf: the GGX pdf's D and a NdotH cancel, leaving
+			// this ratio (see Karis). Fc is the Schlick Fresnel's (1-VdotH)^5 factor, split out so
+			// F0 can be reapplied per material at shading time instead of baked in here.
+			float G_Vis = G * VdotH / (NdotH * NdotV);
+			float Fc = pow(1.0 - VdotH, 5.0);
+			A += (1.0 - Fc) * G_Vis;
+			B += Fc * G_Vis;
+		}
+	}
+	return float2(A, B) / float(SAMPLE_COUNT);
+}
+
+[numthreads(8, 8, 1)]
+void BrdfLutBake(uint3 id : SV_DispatchThreadID)
+{
+	uint res = (uint)_BrdfLutParams.x;
+	if (id.x >= res || id.y >= res)
+		return;
+
+	// Texel centers -> (NdotV, perceptualRoughness) in (0,1]. Nudge NdotV off 0 (grazing) to avoid
+	// the divide-by-NdotV blowing up.
+	float NdotV = max((float(id.x) + 0.5) / float(res), 1e-3);
+	float roughness = (float(id.y) + 0.5) / float(res);
+
+	_BrdfLutResult[id.xy] = IntegrateBRDF(NdotV, roughness);
+}
