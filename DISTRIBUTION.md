@@ -14,7 +14,7 @@ Prereq: create an **empty** repo on GitHub/GitLab (no README) and note its URL.
 cd Packages/com.direday.tdrp
 git init -b main
 git add -A && git commit -m "Initial commit: TDRP pipeline v0.1.0"
-git remote add origin <REMOTE_URL>
+git remote add origin git@github.com:direday/TDRP.git
 git push -u origin main
 git tag v0.1.0 && git push --tags        # tag every release; consumers pin tags
 cd ../..
@@ -26,7 +26,7 @@ TDRP stays exactly as it is (embedded, editable source of truth). In a **new**
 project, add to `Packages/manifest.json` → `dependencies`:
 
 ```json
-"com.direday.tdrp": "<REMOTE_URL>#v0.1.0"
+"com.direday.tdrp": "git@github.com:direday/TDRP.git#v0.1.0"
 ```
 
 Read-only, resolved into the package cache. **Update** = bump the tag (or use the
@@ -46,14 +46,14 @@ Convert **this** project's embedded copy to a submodule (after the publish step)
 ```bash
 git rm -r --cached Packages/com.direday.tdrp
 rm -rf Packages/com.direday.tdrp                 # content is safe on the remote
-git submodule add <REMOTE_URL> Packages/com.direday.tdrp
+git submodule add git@github.com:direday/TDRP.git Packages/com.direday.tdrp
 git commit -m "Consume com.direday.tdrp as a submodule"
 ```
 
 Add it to a **new** project the same way:
 
 ```bash
-git submodule add <REMOTE_URL> Packages/com.direday.tdrp
+git submodule add git@github.com:direday/TDRP.git Packages/com.direday.tdrp
 ```
 
 Submodule gotchas:

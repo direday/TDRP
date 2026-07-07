@@ -21,7 +21,7 @@ Textures/   SMAA lookup textures (+ .h provenance)
 **As a git submodule (editable, version-pinned per project):**
 
 ```bash
-git submodule add <REMOTE_URL> Packages/com.direday.tdrp
+git submodule add git@github.com:direday/TDRP.git Packages/com.direday.tdrp
 ```
 
 **Or by git URL (read-only, resolved into the package cache):**
@@ -29,7 +29,7 @@ git submodule add <REMOTE_URL> Packages/com.direday.tdrp
 Add to `Packages/manifest.json` → `dependencies`:
 
 ```json
-"com.direday.tdrp": "<REMOTE_URL>#v0.1.0"
+"com.direday.tdrp": "git@github.com:direday/TDRP.git#v0.1.0"
 ```
 
 > Always consume a **tag** (`#v0.1.0`), never a branch — Unity caches the
