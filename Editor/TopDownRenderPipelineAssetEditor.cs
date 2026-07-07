@@ -392,7 +392,7 @@ namespace TDRP.EditorTools
 			EditorGUILayout.Space(4);
 			EditorGUILayout.LabelField("IBL", EditorStyles.boldLabel);
 			R("_brdfLutShader"); R("_prefilterEnvShader"); R("_brdfLutDebugShader"); R("_prefilteredEnvDebugShader");
-			R("_environmentCubemap"); R("_mainLightCookie");
+			R("_mainLightCookie");
 
 			EndGroup();
 		}
