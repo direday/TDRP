@@ -16,7 +16,9 @@
 // no-op apart from renormalising after 8-bit quantisation. (A future optimisation would
 // be octahedral RG16 — half the bandwidth — but the direct form is clearer.)
 
-#include "Includes/TDRPCore.hlsl"
+// Sibling-relative so game-side shaders outside the package's Shaders/ folder can pull
+// this in ("Includes/…" only resolves relative to a shader sitting next to Includes/).
+#include "TDRPCore.hlsl"
 
 // World-space scene normals, written by the CameraNormals pass. .a is unused.
 TEXTURE2D(_CameraNormalsTexture);
