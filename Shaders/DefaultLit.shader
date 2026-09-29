@@ -25,6 +25,20 @@ Shader "TDRP/DefaultLit"
             float _Metallic;
             float _Smoothness;
         CBUFFER_END
+
+        // Per-instance overrides for BatchRendererGroup draws (e.g. team colour). A property
+        // the BRG does not supply falls back to the material value.
+        #ifdef UNITY_DOTS_INSTANCING_ENABLED
+        UNITY_DOTS_INSTANCING_START(MaterialPropertyMetadata)
+            UNITY_DOTS_INSTANCED_PROP(float4, _BaseColor)
+            UNITY_DOTS_INSTANCED_PROP(float, _Metallic)
+            UNITY_DOTS_INSTANCED_PROP(float, _Smoothness)
+        UNITY_DOTS_INSTANCING_END(MaterialPropertyMetadata)
+
+        #define _BaseColor UNITY_ACCESS_DOTS_INSTANCED_PROP_WITH_DEFAULT(float4, _BaseColor)
+        #define _Metallic UNITY_ACCESS_DOTS_INSTANCED_PROP_WITH_DEFAULT(float, _Metallic)
+        #define _Smoothness UNITY_ACCESS_DOTS_INSTANCED_PROP_WITH_DEFAULT(float, _Smoothness)
+        #endif
         ENDHLSL
 
         Pass
@@ -40,6 +54,8 @@ Shader "TDRP/DefaultLit"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment Frag
+            // BatchRendererGroup draws (DOTS instancing). See TDRPCore.hlsl.
+            #pragma multi_compile _ DOTS_INSTANCING_ON
 
             // Compiles main-light shadow sampling in/out (set globally by the pipeline).
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS
@@ -69,6 +85,7 @@ Shader "TDRP/DefaultLit"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -76,11 +93,14 @@ Shader "TDRP/DefaultLit"
                 float4 positionCS : SV_POSITION;
                 float3 positionWS : TEXCOORD0;
                 float3 normalWS : TEXCOORD1;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             Varyings Vert(Attributes input)
             {
                 Varyings output;
+                UNITY_SETUP_INSTANCE_ID(input);
+                UNITY_TRANSFER_INSTANCE_ID(input, output);
                 output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 output.positionCS = TransformWorldToHClip(output.positionWS);
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
@@ -89,6 +109,7 @@ Shader "TDRP/DefaultLit"
 
             float4 Frag(Varyings input) : SV_Target
             {
+                UNITY_SETUP_INSTANCE_ID(input);
                 SurfaceData surface;
                 surface.albedo = _BaseColor.rgb;
                 surface.metallic = _Metallic;
@@ -121,10 +142,13 @@ Shader "TDRP/DefaultLit"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment Frag
+            // BatchRendererGroup draws (DOTS instancing). See TDRPCore.hlsl.
+            #pragma multi_compile _ DOTS_INSTANCING_ON
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -135,6 +159,7 @@ Shader "TDRP/DefaultLit"
             Varyings Vert(Attributes input)
             {
                 Varyings output;
+                UNITY_SETUP_INSTANCE_ID(input);
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
                 return output;
             }
@@ -158,6 +183,8 @@ Shader "TDRP/DefaultLit"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment Frag
+            // BatchRendererGroup draws (DOTS instancing). See TDRPCore.hlsl.
+            #pragma multi_compile _ DOTS_INSTANCING_ON
 
             #include "Includes/Normals.hlsl"
 
@@ -165,6 +192,7 @@ Shader "TDRP/DefaultLit"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -176,6 +204,7 @@ Shader "TDRP/DefaultLit"
             Varyings Vert(Attributes input)
             {
                 Varyings output;
+                UNITY_SETUP_INSTANCE_ID(input);
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 return output;
@@ -211,12 +240,15 @@ Shader "TDRP/DefaultLit"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment Frag
+            // BatchRendererGroup draws (DOTS instancing). See TDRPCore.hlsl.
+            #pragma multi_compile _ DOTS_INSTANCING_ON
 
             float4x4 _PrevViewProjMatrix;
 
             struct Attributes
             {
                 float4 positionOS : POSITION;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -233,10 +265,11 @@ Shader "TDRP/DefaultLit"
             Varyings Vert(Attributes input)
             {
                 Varyings output;
+                UNITY_SETUP_INSTANCE_ID(input);
                 float4 currClip = TransformObjectToHClip(input.positionOS.xyz);
                 // Rigid objects only: reuse this vertex's object-space position with the previous
                 // model matrix (skinned / vertex-animated meshes would need their previous positions).
-                float3 prevWorld = mul(UNITY_PREV_MATRIX_M, float4(input.positionOS.xyz, 1.0)).xyz;
+                float3 prevWorld = mul(GetMotionPrevObjectToWorldMatrix(), float4(input.positionOS.xyz, 1.0)).xyz;
                 float4 prevClip = mul(_PrevViewProjMatrix, float4(prevWorld, 1.0));
 
                 output.positionCS = currClip;

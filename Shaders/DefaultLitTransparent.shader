@@ -27,6 +27,20 @@ Shader "TDRP/DefaultLitTransparent"
             float _Metallic;
             float _Smoothness;
         CBUFFER_END
+
+        // Per-instance overrides for BatchRendererGroup draws (e.g. team colour). A property
+        // the BRG does not supply falls back to the material value.
+        #ifdef UNITY_DOTS_INSTANCING_ENABLED
+        UNITY_DOTS_INSTANCING_START(MaterialPropertyMetadata)
+            UNITY_DOTS_INSTANCED_PROP(float4, _BaseColor)
+            UNITY_DOTS_INSTANCED_PROP(float, _Metallic)
+            UNITY_DOTS_INSTANCED_PROP(float, _Smoothness)
+        UNITY_DOTS_INSTANCING_END(MaterialPropertyMetadata)
+
+        #define _BaseColor UNITY_ACCESS_DOTS_INSTANCED_PROP_WITH_DEFAULT(float4, _BaseColor)
+        #define _Metallic UNITY_ACCESS_DOTS_INSTANCED_PROP_WITH_DEFAULT(float, _Metallic)
+        #define _Smoothness UNITY_ACCESS_DOTS_INSTANCED_PROP_WITH_DEFAULT(float, _Smoothness)
+        #endif
         ENDHLSL
 
         Pass
@@ -47,6 +61,8 @@ Shader "TDRP/DefaultLitTransparent"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment Frag
+            // BatchRendererGroup draws (DOTS instancing). See TDRPCore.hlsl.
+            #pragma multi_compile _ DOTS_INSTANCING_ON
 
             // Receive the main-light shadow (transparents don't cast — no ShadowCaster pass).
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS
@@ -59,6 +75,7 @@ Shader "TDRP/DefaultLitTransparent"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -66,11 +83,14 @@ Shader "TDRP/DefaultLitTransparent"
                 float4 positionCS : SV_POSITION;
                 float3 positionWS : TEXCOORD0;
                 float3 normalWS : TEXCOORD1;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             Varyings Vert(Attributes input)
             {
                 Varyings output;
+                UNITY_SETUP_INSTANCE_ID(input);
+                UNITY_TRANSFER_INSTANCE_ID(input, output);
                 output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 output.positionCS = TransformWorldToHClip(output.positionWS);
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
@@ -79,6 +99,7 @@ Shader "TDRP/DefaultLitTransparent"
 
             float4 Frag(Varyings input) : SV_Target
             {
+                UNITY_SETUP_INSTANCE_ID(input);
                 SurfaceData surface;
                 surface.albedo = _BaseColor.rgb;
                 surface.metallic = _Metallic;
@@ -117,6 +138,8 @@ Shader "TDRP/DefaultLitTransparent"
             #pragma target 4.5
             #pragma vertex Vert
             #pragma fragment Frag
+            // BatchRendererGroup draws (DOTS instancing). See TDRPCore.hlsl.
+            #pragma multi_compile _ DOTS_INSTANCING_ON
 
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS
             #pragma multi_compile _ _SHADOWS_SOFT _SHADOWS_PCSS _SHADOWS_PCSS_PYRAMID
@@ -130,6 +153,7 @@ Shader "TDRP/DefaultLitTransparent"
             {
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
@@ -141,11 +165,14 @@ Shader "TDRP/DefaultLitTransparent"
                 // platform-independent (unlike reversed-Z window depth) and linear, which the
                 // 4th-power weight wants.
                 float viewDepth : TEXCOORD2;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             Varyings Vert(Attributes input)
             {
                 Varyings output;
+                UNITY_SETUP_INSTANCE_ID(input);
+                UNITY_TRANSFER_INSTANCE_ID(input, output);
                 output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 output.positionCS = TransformWorldToHClip(output.positionWS);
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
@@ -155,6 +182,7 @@ Shader "TDRP/DefaultLitTransparent"
 
             OitFragOutput Frag(Varyings input)
             {
+                UNITY_SETUP_INSTANCE_ID(input);
                 SurfaceData surface;
                 surface.albedo = _BaseColor.rgb;
                 surface.metallic = _Metallic;
