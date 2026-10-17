@@ -19,6 +19,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow 
   submesh from its own `_BaseColor`, so multi-material models keep their look under tinting.
 - `PartMatrix` / `PartPalette` (runtime): the palette's 3x4 entry and a double-buffered owner
   that uploads it each frame and binds `_PartPalette`, `_PartPalettePrev`, `_PartPaletteHasPrev`.
+- Gamma-space UI layer: `TopDownRenderPipeline.SetGammaUiLayer(Texture)` registers a
+  display-res `R8G8B8A8_UNorm` layer (gamma-encoded, premultiplied). Example: a UITK panel
+  with `targetTexture` set and `PanelSettings.forceGammaRendering`; UITK honors that flag only
+  for target-texture panels. Present composites the layer in gamma space in its existing blit
+  through `Hidden/TDRP/UiGammaCompose` (new asset field `_uiGammaComposeShader`), so UI colors
+  and alpha match image editors and CSS in a linear project. The cost is one extra texture
+  fetch in Present, plus clearing the layer. `SupportsGammaUiLayer(asset)` lets callers fall
+  back to overlay UI.
 
 ### Changed
 - `unity_MatrixPreviousM/MI` moved into the `UnityPerDraw` cbuffer (plus

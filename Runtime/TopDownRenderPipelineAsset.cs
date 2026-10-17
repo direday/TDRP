@@ -37,6 +37,8 @@ namespace TDRP
 		// FSR 1.0 spatial upscaler (EASU edge-adaptive upscale + RCAS sharpen), used when
 		// PipelineSettings.Upscale = Fsr1 and RenderScale < 1.
 		[SerializeField] private Shader _fsrShader;
+		// Gamma-space UI composition (PipelineSettings.GammaSpaceUi): encode/decode around the overlay UI.
+		[SerializeField] private Shader _uiGammaComposeShader;
 		// Image-based lighting: the two precompute-once bakes (env-BRDF LUT + GGX prefilter of the
 		// skybox reflection cube) and their debug views.
 		[SerializeField] private ComputeShader _brdfLutShader;
@@ -79,6 +81,7 @@ namespace TDRP
 		public Shader MotionVectorsDebugShader => _motionVectorsDebugShader;
 		public Shader SmaaShader => _smaaShader;
 		public Shader FsrShader => _fsrShader;
+		public Shader UiGammaComposeShader => _uiGammaComposeShader;
 		public Texture2D SmaaAreaTex => _smaaAreaTex;
 		public Texture2D SmaaSearchTex => _smaaSearchTex;
 		public Texture2D MainLightCookie => _mainLightCookie;

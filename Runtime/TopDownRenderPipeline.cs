@@ -46,6 +46,7 @@ namespace TDRP
 		private readonly Material _motionVectorsDebugMaterial;
 		private readonly Material _smaaMaterial;
 		private readonly Material _fsrMaterial;
+		private readonly Material _uiGammaMaterial;
 		private readonly Material _prefilterEnvMaterial;
 		private readonly Material _brdfLutDebugMaterial;
 		private readonly Material _prefilteredEnvDebugMaterial;
@@ -96,6 +97,11 @@ namespace TDRP
 		private readonly SmaaBlendPass _smaaBlendPass;
 		private readonly FsrUpscalePass _fsrUpscalePass;
 		private readonly PresentPass _presentPass;
+
+		// Gamma-space UI: the layer the game registered (SetGammaUiLayer) and the camera that composites
+		// it this frame (null = none).
+		private static Texture s_gammaUiLayer;
+		private Camera _uiCamera;
 
 		public TopDownRenderPipeline(TopDownRenderPipelineAsset asset)
 		{
@@ -177,6 +183,8 @@ namespace TDRP
 
 			if (asset.FsrShader != null)
 				_fsrMaterial = CoreUtils.CreateEngineMaterial(asset.FsrShader);
+			if (asset.UiGammaComposeShader != null)
+				_uiGammaMaterial = CoreUtils.CreateEngineMaterial(asset.UiGammaComposeShader);
 
 			if (asset.PrefilterEnvShader != null)
 				_prefilterEnvMaterial = CoreUtils.CreateEngineMaterial(asset.PrefilterEnvShader);
@@ -193,7 +201,7 @@ namespace TDRP
 			_smaaBlendWeightPass = new SmaaBlendWeightPass(_smaaMaterial, asset.SmaaAreaTex, asset.SmaaSearchTex);
 			_smaaBlendPass = new SmaaBlendPass(_smaaMaterial);
 			_fsrUpscalePass = new FsrUpscalePass(_fsrMaterial);
-			_presentPass = new PresentPass();
+			_presentPass = new PresentPass(_uiGammaMaterial);
 
 			_renderGraph.RegisterDebug();
 		}
@@ -204,6 +212,19 @@ namespace TDRP
 		// the sky's appearance changed (procedural sun/exposure tweaked, or a scene-load handoff where you
 		// want the bake guaranteed). One-shot: it re-bakes once, then the normal gates resume.
 		public static void RequestEnvironmentRebake() => EnvironmentIBLPass.RequestRebake();
+
+		// Gamma-space UI. In a linear project, screen-space UI blends in LINEAR space, so its alpha reads
+		// much weaker than in image editors / CSS (0.84 looks like ~0.57). To get editor-matching colors,
+		// the game renders its UI into `layer` instead — a display-res R8G8B8A8_UNorm (NOT sRGB)
+		// RenderTexture, cleared to transparent each frame, e.g. a UITK panel with targetTexture = layer
+		// and PanelSettings.forceGammaRendering (UITK honors that flag only for target-texture panels).
+		// Present then composites the layer over the frame in gamma space (premultiplied alpha) inside its
+		// existing blit. Needs the asset's UiGammaComposeShader; null unregisters.
+		public static void SetGammaUiLayer(Texture layer) => s_gammaUiLayer = layer;
+
+		// Whether `asset` can composite a gamma UI layer (so callers can fall back to overlay UI).
+		public static bool SupportsGammaUiLayer(TopDownRenderPipelineAsset asset) =>
+			asset != null && asset.UiGammaComposeShader != null;
 
 		protected override void Dispose(bool disposing)
 		{
@@ -236,6 +257,7 @@ namespace TDRP
 				CoreUtils.Destroy(_motionVectorsDebugMaterial);
 				CoreUtils.Destroy(_smaaMaterial);
 				CoreUtils.Destroy(_fsrMaterial);
+				CoreUtils.Destroy(_uiGammaMaterial);
 				CoreUtils.Destroy(_prefilterEnvMaterial);
 				CoreUtils.Destroy(_brdfLutDebugMaterial);
 				CoreUtils.Destroy(_prefilteredEnvDebugMaterial);
@@ -251,6 +273,17 @@ namespace TDRP
 
 		protected override void Render(ScriptableRenderContext context, List<Camera> cameras)
 		{
+			// A registered gamma UI layer is composited by the last game camera that renders to the screen.
+			_uiCamera = null;
+			if (s_gammaUiLayer != null && _presentPass.SupportsGammaUi)
+			{
+				foreach (var camera in cameras)
+				{
+					if (camera.cameraType == CameraType.Game && camera.targetTexture == null)
+						_uiCamera = camera;
+				}
+			}
+
 			foreach (var camera in cameras)
 			{
 				RenderCamera(context, camera);
@@ -916,7 +949,7 @@ namespace TDRP
 					frame.Camera.pixelWidth, frame.Camera.pixelHeight);
 			}
 
-			_presentPass.Record(rg, in frame, finalLdr);
+			_presentPass.Record(rg, in frame, finalLdr, frame.Camera == _uiCamera ? s_gammaUiLayer : null);
 
 			_resources.Reset();
 		}
